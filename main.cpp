@@ -8,9 +8,9 @@
 #include <stdio.h>
 #include <time.h>
 
-#define BLACK al_map_rgb(0, 0, 0);
-#define WHITE al_map_rgb(255, 255, 255);
-#define BLUE al_map_rgb(197, 214, 237);
+#define BLACK al_map_rgb(0, 0, 0)
+#define WHITE al_map_rgb(255, 255, 255)
+#define BLUE al_map_rgb(197, 214, 237)
 
 // Initialize constants
 const float FPS = 200;
