@@ -7,11 +7,17 @@ Anime-themed memory matching game (high school project). Built with Allegro 5.
 - C++ compiler with C++17 (`g++` or Clang)
 - Allegro 5 development libraries: core, font, TTF, image, primitives, native dialog
 
-On Debian/Ubuntu:
+On Debian/Ubuntu, install the core dev package plus the addons this project uses (TTF, image, dialog). **Ubuntu 24.04 (Noble)** does not ship `liballegro5.2-plugins` under that name; use the packages below instead:
 
 ```bash
-sudo apt install g++ liballegro5-dev liballegro5.2-plugins
+sudo apt update
+sudo apt install g++ pkg-config liballegro5-dev \
+  liballegro-ttf5-dev liballegro-image5-dev liballegro-dialog5-dev
 ```
+
+`liballegro5-dev` provides the main library, font, and primitives (including the matching `pkg-config` files). The three `liballegro-*5-dev` lines add TTF, image loading, and native dialogs.
+
+If you see `Package allegro-5 was not found in the pkg-config search path`, install the packages above (and ensure the **universe** repository is enabled on Ubuntu: `sudo apt install software-properties-common` and `sudo add-apt-repository universe` if needed).
 
 ## Build
 
@@ -30,11 +36,14 @@ g++ -std=c++17 -O2 main.cpp -o memoroid ... $(pkg-config ...) -lstdc++fs
 
 ## Build and run (one command)
 
-[`run.sh`](run.sh) rebuilds the binary when `main.cpp` is newer than `memoroid` (or when the binary is missing), then starts the game:
+Install dependencies first (see **Dependencies**). Then [`run.sh`](run.sh) rebuilds the binary when `main.cpp` is newer than `memoroid` (or when the binary is missing), then starts the game. You must run it with a path (the current directory is not on `PATH`):
 
 ```bash
+chmod +x run.sh   # once, if needed
 ./run.sh
 ```
+
+You can also use `sh run.sh` or `bash run.sh`.
 
 ## Run
 
@@ -44,7 +53,7 @@ The game loads assets with paths relative to the **current working directory**. 
 ./memoroid
 ```
 
-The game runs **fullscreen** on the primary display. Press **Escape** or close the window to quit.
+The game opens a **1600×900 window** (not fullscreen). Press **Escape** or close the window to quit.
 
 ## Assets layout
 
