@@ -1,0 +1,9 @@
+# Runtime / local (never commit)
+save.txt
+
+# Build / editor cruft
+memoroid
+a.out
+*.o
+*.swp
+*~
