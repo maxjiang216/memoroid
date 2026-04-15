@@ -90,9 +90,9 @@ emcc main.cpp \
   -O2 \
   -I"${ALLEGRO_INCLUDE}" \
   "${ALLEGRO_LIB_FILE}" \
-  -s USE_SDL=2 \
-  -s ALLOW_MEMORY_GROWTH=1 \
-  -s EXPORTED_RUNTIME_METHODS='["UTF8ToString","lengthBytesUTF8","stringToUTF8"]' \
+  -sUSE_SDL=2 \
+  -sALLOW_MEMORY_GROWTH=1 \
+  -sEXPORTED_RUNTIME_METHODS='["UTF8ToString","lengthBytesUTF8","stringToUTF8"]' \
   --preload-file assets/ \
   -o "${OUT_DIR}/index.html"
 

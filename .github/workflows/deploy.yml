@@ -37,12 +37,12 @@ jobs:
         id: emcc-ver
         run: echo "ver=$(emcc -dumpversion)" >> "$GITHUB_OUTPUT"
 
-      # Pre-build the SDL2 and FreeType Emscripten ports so their headers and
-      # static libs land in the emsdk sysroot before cmake runs.
+      # Pre-build the SDL2 Emscripten port so its headers and static lib land
+      # in the emsdk sysroot before cmake runs.
       # This must happen before the Allegro cmake step even on cache hits,
       # because embuilder populates emsdk's own cache (not allegro5-src).
-      - name: Pre-build Emscripten SDL2 and FreeType ports
-        run: embuilder build sdl2 freetype
+      - name: Pre-build Emscripten SDL2 port
+        run: embuilder build sdl2
 
       # ── Allegro for Emscripten (cached) ─────────────────────────────────
       # Cache key includes the allegro tag, emcc version, and a manual bump
@@ -52,7 +52,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: allegro5-src
-          key: allegro-${{ env.ALLEGRO_TAG }}-emcc-${{ steps.emcc-ver.outputs.ver }}-v4
+          key: allegro-${{ env.ALLEGRO_TAG }}-emcc-${{ steps.emcc-ver.outputs.ver }}-v5
 
       - name: Clone Allegro source
         if: steps.cache-allegro.outputs.cache-hit != 'true'
@@ -72,20 +72,22 @@ jobs:
       - name: Build Allegro for Emscripten
         if: steps.cache-allegro.outputs.cache-hit != 'true'
         run: |
-          # Locate SDL2 and FreeType in the emsdk sysroot (populated above by embuilder).
+          # Locate SDL2 in the emsdk sysroot (populated above by embuilder).
+          # SDL2_INCLUDE_DIR must point to the SDL2/ subdirectory (which contains
+          # SDL.h directly) so that Allegro's #include <SDL.h> resolves correctly.
+          # Without -sUSE_SDL=2 in CMAKE_C_FLAGS, emcc would pick up the stub
+          # fakesdl/SDL.h from its sysroot and error at compile time.
           EMCACHE=$(em-config CACHE)
-          SDL2_INC="${EMCACHE}/sysroot/include"
+          SDL2_INC="${EMCACHE}/sysroot/include/SDL2"
           SDL2_LIB="${EMCACHE}/sysroot/lib/wasm32-emscripten/libSDL2.a"
-          FT_INC="${EMCACHE}/sysroot/include/freetype2"
-          FT_LIB="${EMCACHE}/sysroot/lib/wasm32-emscripten/libfreetype.a"
 
           emcmake cmake -S allegro5-src -B allegro5-src/build-wasm \
             -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_FLAGS="-sUSE_SDL=2" \
+            -DCMAKE_CXX_FLAGS="-sUSE_SDL=2" \
             -DALLEGRO_SDL=ON \
             -DSDL2_INCLUDE_DIR="${SDL2_INC}" \
             -DSDL2_LIBRARY="${SDL2_LIB}" \
-            -DFREETYPE_INCLUDE_DIRS="${FT_INC}" \
-            -DFREETYPE_LIBRARY="${FT_LIB}" \
             -DWANT_MONOLITH=ON \
             -DWANT_TTF=OFF \
             -DWANT_IMAGE=ON \
