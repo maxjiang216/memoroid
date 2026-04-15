@@ -85,10 +85,15 @@ fi
 echo "Using Allegro library: ${ALLEGRO_LIB_FILE}"
 
 echo "Building memoroid.wasm ..."
+# ALLEGRO_BUILD_INCLUDE: cmake generates alplatf.h into the build tree's
+# include/ directory. We derive its location from the library path.
+ALLEGRO_BUILD_INCLUDE="$(dirname "${ALLEGRO_LIB_FILE}")/../include"
+
 emcc main.cpp \
   -std=c++17 \
   -O2 \
   -I"${ALLEGRO_INCLUDE}" \
+  -I"${ALLEGRO_BUILD_INCLUDE}" \
   "${ALLEGRO_LIB_FILE}" \
   -sUSE_SDL=2 \
   -sALLOW_MEMORY_GROWTH=1 \
