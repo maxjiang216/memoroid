@@ -52,7 +52,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: allegro5-src
-          key: allegro-${{ env.ALLEGRO_TAG }}-emcc-${{ steps.emcc-ver.outputs.ver }}-v5
+          key: allegro-${{ env.ALLEGRO_TAG }}-emcc-${{ steps.emcc-ver.outputs.ver }}-v6
 
       - name: Clone Allegro source
         if: steps.cache-allegro.outputs.cache-hit != 'true'
@@ -96,7 +96,7 @@ jobs:
             -DWANT_NATIVE_DIALOG=OFF \
             -DWANT_AUDIO=OFF \
             -DWANT_ACODEC=OFF \
-            -DWANT_SHADERS_GL=OFF \
+            -DWANT_SHADERS_GL=ON \
             -DWANT_EXAMPLES=OFF \
             -DWANT_TESTS=OFF \
             -DWANT_DOCS=OFF
