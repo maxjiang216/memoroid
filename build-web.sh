@@ -1,0 +1,94 @@
+#!/usr/bin/env bash
+# Build memoroid for the web using Emscripten.
+#
+# Prerequisites
+# =============
+# 1. Install and activate emsdk:
+#
+#       git clone https://github.com/emscripten-core/emsdk.git
+#       cd emsdk
+#       ./emsdk install latest
+#       ./emsdk activate latest
+#       source ./emsdk_env.sh          # or add to ~/.bashrc
+#
+# 2. Build Allegro 5 for Emscripten.
+#    Allegro's web target uses its SDL-based backend.
+#    A minimal recipe (run once, outside this repo):
+#
+#       git clone https://github.com/liballeg/allegro5.git
+#       cd allegro5
+#       emcmake cmake -B build-wasm \
+#           -DCMAKE_BUILD_TYPE=Release \
+#           -DALLEGRO_SDL=ON \
+#           -DWANT_SHADERS_GL=OFF \
+#           -DWANT_NATIVE_DIALOG=OFF \
+#           -DWANT_AUDIO=OFF \
+#           -DWANT_ACODEC=OFF \
+#           -DWANT_TTF=ON \
+#           -DWANT_IMAGE=ON \
+#           -DWANT_PRIMITIVES=ON \
+#           -DWANT_FONT=ON \
+#           -DWANT_MONOLITH=ON \
+#           -S .
+#       cmake --build build-wasm -j$(nproc)
+#
+#    The important output is build-wasm/lib/liballegro_monolith-static.a
+#    (exact name may vary; adjust ALLEGRO_LIB below accordingly).
+#
+# Usage
+# =====
+#   ALLEGRO_INCLUDE=/path/to/allegro5/include \
+#   ALLEGRO_LIB=/path/to/allegro5/build-wasm/lib \
+#   bash build-web.sh
+#
+# Output goes to public/ (index.html, index.js, index.wasm, index.data).
+# Commit that directory and push; Vercel serves it as a static site.
+
+set -euo pipefail
+
+ALLEGRO_INCLUDE="${ALLEGRO_INCLUDE:-./allegro5/include}"
+ALLEGRO_LIB="${ALLEGRO_LIB:-./allegro5/build-wasm/lib}"
+OUT_DIR="${OUT_DIR:-public}"
+
+if ! command -v emcc &>/dev/null; then
+  echo "ERROR: emcc not found. Activate emsdk first:" >&2
+  echo "  source /path/to/emsdk/emsdk_env.sh" >&2
+  exit 1
+fi
+
+if [ ! -d "${ALLEGRO_INCLUDE}/allegro5" ]; then
+  echo "ERROR: Allegro headers not found at ${ALLEGRO_INCLUDE}/allegro5" >&2
+  echo "  Set ALLEGRO_INCLUDE to the allegro5/include directory." >&2
+  exit 1
+fi
+
+mkdir -p "${OUT_DIR}"
+
+# Locate the monolith static library (name varies: -static suffix or not)
+ALLEGRO_LIB_FILE=$(find "${ALLEGRO_LIB}" -name "liballegro_monolith*.a" 2>/dev/null | head -1)
+if [ -z "${ALLEGRO_LIB_FILE}" ]; then
+  echo "ERROR: Could not find liballegro_monolith*.a under ${ALLEGRO_LIB}" >&2
+  echo "  Make sure Allegro was built with WANT_MONOLITH=ON for Emscripten." >&2
+  exit 1
+fi
+echo "Using Allegro library: ${ALLEGRO_LIB_FILE}"
+
+echo "Building memoroid.wasm ..."
+emcc main.cpp \
+  -std=c++17 \
+  -O2 \
+  -I"${ALLEGRO_INCLUDE}" \
+  "${ALLEGRO_LIB_FILE}" \
+  -s USE_SDL=2 \
+  -s ALLOW_MEMORY_GROWTH=1 \
+  -s EXPORTED_RUNTIME_METHODS='["UTF8ToString","lengthBytesUTF8","stringToUTF8"]' \
+  --preload-file assets/ \
+  -o "${OUT_DIR}/index.html"
+
+echo ""
+echo "Build complete. Output in ${OUT_DIR}/:"
+ls -lh "${OUT_DIR}"/index.*
+echo ""
+echo "To preview locally:"
+echo "  cd ${OUT_DIR} && python3 -m http.server 8080"
+echo "  Then open http://localhost:8080/index.html"
