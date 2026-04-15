@@ -17,18 +17,29 @@
 #
 #       git clone https://github.com/liballeg/allegro5.git
 #       cd allegro5
+#       # Pre-build SDL2 and FreeType Emscripten ports first:
+#       embuilder build sdl2 freetype
+#
+#       EMCACHE=$(em-config CACHE)
 #       emcmake cmake -B build-wasm \
 #           -DCMAKE_BUILD_TYPE=Release \
 #           -DALLEGRO_SDL=ON \
-#           -DWANT_SHADERS_GL=OFF \
-#           -DWANT_NATIVE_DIALOG=OFF \
-#           -DWANT_AUDIO=OFF \
-#           -DWANT_ACODEC=OFF \
+#           -DSDL2_INCLUDE_DIR="${EMCACHE}/sysroot/include" \
+#           -DSDL2_LIBRARY="${EMCACHE}/sysroot/lib/wasm32-emscripten/libSDL2.a" \
+#           -DFREETYPE_INCLUDE_DIRS="${EMCACHE}/sysroot/include/freetype2" \
+#           -DFREETYPE_LIBRARY="${EMCACHE}/sysroot/lib/wasm32-emscripten/libfreetype.a" \
+#           -DWANT_MONOLITH=ON \
 #           -DWANT_TTF=ON \
 #           -DWANT_IMAGE=ON \
 #           -DWANT_PRIMITIVES=ON \
 #           -DWANT_FONT=ON \
-#           -DWANT_MONOLITH=ON \
+#           -DWANT_NATIVE_DIALOG=OFF \
+#           -DWANT_AUDIO=OFF \
+#           -DWANT_ACODEC=OFF \
+#           -DWANT_SHADERS_GL=OFF \
+#           -DWANT_EXAMPLES=OFF \
+#           -DWANT_TESTS=OFF \
+#           -DWANT_DOCS=OFF \
 #           -S .
 #       cmake --build build-wasm -j$(nproc)
 #
@@ -74,14 +85,35 @@ fi
 echo "Using Allegro library: ${ALLEGRO_LIB_FILE}"
 
 echo "Building memoroid.wasm ..."
+
+# Derive Allegro build and source roots from the library path.
+# Layout: allegro5-src/build-wasm/lib/liballegro_monolith.a
+#              => build dir:  allegro5-src/build-wasm/
+#              => source dir: allegro5-src/
+ALLEGRO_BUILD_DIR="$(cd "$(dirname "${ALLEGRO_LIB_FILE}")/.." && pwd)"
+ALLEGRO_SRC_DIR="$(cd "${ALLEGRO_BUILD_DIR}/.." && pwd)"
+
+# Generated headers (alplatf.h etc.) land in the build include tree.
+ALLEGRO_BUILD_INC="${ALLEGRO_BUILD_DIR}/include"
+
+# Addon headers (allegro_font.h, allegro_image.h, allegro_primitives.h, …)
+# live in the source addon subdirectories. They are NOT copied to the build
+# tree during cmake build (only on cmake --install), so we add each one.
+ADDON_INCS=""
+for addon_dir in "${ALLEGRO_SRC_DIR}/addons"/*/; do
+    [ -d "${addon_dir}" ] && ADDON_INCS="${ADDON_INCS} -I${addon_dir%/}"
+done
+
 emcc main.cpp \
   -std=c++17 \
   -O2 \
   -I"${ALLEGRO_INCLUDE}" \
+  -I"${ALLEGRO_BUILD_INC}" \
+  ${ADDON_INCS} \
   "${ALLEGRO_LIB_FILE}" \
-  -s USE_SDL=2 \
-  -s ALLOW_MEMORY_GROWTH=1 \
-  -s EXPORTED_RUNTIME_METHODS='["UTF8ToString","lengthBytesUTF8","stringToUTF8"]' \
+  -sUSE_SDL=2 \
+  -sALLOW_MEMORY_GROWTH=1 \
+  -sEXPORTED_RUNTIME_METHODS='["UTF8ToString","lengthBytesUTF8","stringToUTF8"]' \
   --preload-file assets/ \
   -o "${OUT_DIR}/index.html"
 

@@ -3,46 +3,56 @@ name: Build and Deploy to Vercel
 on:
   push:
     branches: [main]
-  workflow_dispatch:   # lets you trigger manually from the GitHub UI
+  pull_request:
+    branches: [main]   # PRs to main get a build check; blocks bad merges
+  workflow_dispatch:
 
-# Only one deployment runs at a time; a newer push cancels an in-flight one.
+# One run per ref at a time; newer push cancels an in-flight one.
 concurrency:
-  group: vercel-deploy
+  group: vercel-deploy-${{ github.ref }}
   cancel-in-progress: true
 
 env:
-  # Pin the Allegro release tag used for the WASM build.
-  # Update this when you want to upgrade Allegro.
   ALLEGRO_TAG: "5.2.10.1"
 
 jobs:
-  build-deploy:
+  # ── Build ─────────────────────────────────────────────────────────────────
+  # Runs on every push and every PR targeting main.
+  # A failed build blocks the PR from merging (enable branch protection in
+  # GitHub → Settings → Branches → Require status checks → "build").
+  build:
     runs-on: ubuntu-22.04
 
     steps:
       - uses: actions/checkout@v4
 
-      # ── Emscripten ────────────────────────────────────────────────────────
+      # ── Emscripten ──────────────────────────────────────────────────────
       - name: Set up Emscripten
         uses: mymindstorm/setup-emscripten@v14
         with:
           version: latest
-          # The action caches emsdk itself, so subsequent runs are fast.
           actions-cache-folder: emsdk-cache
 
-      - name: Record emcc version (for Allegro cache key)
+      - name: Record emcc version (for cache key)
         id: emcc-ver
         run: echo "ver=$(emcc -dumpversion)" >> "$GITHUB_OUTPUT"
 
-      # ── Allegro for Emscripten (cached) ───────────────────────────────────
-      # The first run clones + compiles (~8 min). Every subsequent run
-      # restores from cache and skips straight to the game build (~30 s).
+      # Pre-build the SDL2 Emscripten port so its headers and static lib land
+      # in the emsdk sysroot before cmake runs.
+      # This must happen before the Allegro cmake step even on cache hits,
+      # because embuilder populates emsdk's own cache (not allegro5-src).
+      - name: Pre-build Emscripten SDL2 port
+        run: embuilder build sdl2
+
+      # ── Allegro for Emscripten (cached) ─────────────────────────────────
+      # Cache key includes the allegro tag, emcc version, and a manual bump
+      # suffix (-v2) to invalidate the broken cache from the first CI run.
       - name: Restore Allegro WASM build cache
         id: cache-allegro
         uses: actions/cache@v4
         with:
           path: allegro5-src
-          key: allegro-${{ env.ALLEGRO_TAG }}-emcc-${{ steps.emcc-ver.outputs.ver }}
+          key: allegro-${{ env.ALLEGRO_TAG }}-emcc-${{ steps.emcc-ver.outputs.ver }}-v6
 
       - name: Clone Allegro source
         if: steps.cache-allegro.outputs.cache-hit != 'true'
@@ -50,24 +60,50 @@ jobs:
           git clone --branch "$ALLEGRO_TAG" --depth 1 \
             https://github.com/liballeg/allegro5.git allegro5-src
 
+      - name: Patch Allegro - strip SSE flags incompatible with Emscripten
+        if: steps.cache-allegro.outputs.cache-hit != 'true'
+        run: |
+          # Allegro's CMakeLists.txt unconditionally adds -mfpmath=sse -msse -msse2
+          # for any GCC/Clang compiler (which emcc appears as). Emscripten rejects
+          # those flags unless -msimd128 is also passed. Remove them from source.
+          sed -i 's/-mfpmath=sse\b//g; s/-msse[0-9.a-z]*\b//g; s/-mavx[0-9a-z]*\b//g' \
+            allegro5-src/CMakeLists.txt
+
       - name: Build Allegro for Emscripten
         if: steps.cache-allegro.outputs.cache-hit != 'true'
         run: |
+          # Locate SDL2 in the emsdk sysroot (populated above by embuilder).
+          # SDL2_INCLUDE_DIR must point to the SDL2/ subdirectory (which contains
+          # SDL.h directly) so that Allegro's #include <SDL.h> resolves correctly.
+          # Without -sUSE_SDL=2 in CMAKE_C_FLAGS, emcc would pick up the stub
+          # fakesdl/SDL.h from its sysroot and error at compile time.
+          EMCACHE=$(em-config CACHE)
+          SDL2_INC="${EMCACHE}/sysroot/include/SDL2"
+          SDL2_LIB="${EMCACHE}/sysroot/lib/wasm32-emscripten/libSDL2.a"
+
           emcmake cmake -S allegro5-src -B allegro5-src/build-wasm \
             -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_FLAGS="-sUSE_SDL=2" \
+            -DCMAKE_CXX_FLAGS="-sUSE_SDL=2" \
             -DALLEGRO_SDL=ON \
+            -DSDL2_INCLUDE_DIR="${SDL2_INC}" \
+            -DSDL2_LIBRARY="${SDL2_LIB}" \
             -DWANT_MONOLITH=ON \
-            -DWANT_TTF=ON \
+            -DWANT_TTF=OFF \
             -DWANT_IMAGE=ON \
             -DWANT_PRIMITIVES=ON \
             -DWANT_FONT=ON \
             -DWANT_NATIVE_DIALOG=OFF \
             -DWANT_AUDIO=OFF \
             -DWANT_ACODEC=OFF \
-            -DWANT_SHADERS_GL=OFF
+            -DWANT_SHADERS_GL=ON \
+            -DWANT_EXAMPLES=OFF \
+            -DWANT_TESTS=OFF \
+            -DWANT_DOCS=OFF
+
           cmake --build allegro5-src/build-wasm -j$(nproc)
 
-      # ── Build the game ────────────────────────────────────────────────────
+      # ── Build the game ───────────────────────────────────────────────────
       - name: Build memoroid.wasm
         run: |
           ALLEGRO_INCLUDE=allegro5-src/include \
@@ -75,7 +111,30 @@ jobs:
           OUT_DIR=public \
           bash build-web.sh
 
-      # ── Deploy to Vercel ──────────────────────────────────────────────────
+      # Pass the built web files to the deploy job without re-running the build.
+      - name: Upload web artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-build
+          path: public/
+          retention-days: 1
+
+  # ── Deploy ────────────────────────────────────────────────────────────────
+  # Runs only when the build succeeds on a push to main (not on PRs).
+  deploy:
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-22.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download web artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: web-build
+          path: public/
+
       # Required GitHub secrets (Settings → Secrets and variables → Actions):
       #   VERCEL_TOKEN      — create at https://vercel.com/account/tokens
       #   VERCEL_ORG_ID     — your Vercel account/team ID (see note below)
