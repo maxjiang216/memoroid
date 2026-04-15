@@ -17,18 +17,29 @@
 #
 #       git clone https://github.com/liballeg/allegro5.git
 #       cd allegro5
+#       # Pre-build SDL2 and FreeType Emscripten ports first:
+#       embuilder build sdl2 freetype
+#
+#       EMCACHE=$(em-config CACHE)
 #       emcmake cmake -B build-wasm \
 #           -DCMAKE_BUILD_TYPE=Release \
 #           -DALLEGRO_SDL=ON \
-#           -DWANT_SHADERS_GL=OFF \
-#           -DWANT_NATIVE_DIALOG=OFF \
-#           -DWANT_AUDIO=OFF \
-#           -DWANT_ACODEC=OFF \
+#           -DSDL2_INCLUDE_DIR="${EMCACHE}/sysroot/include" \
+#           -DSDL2_LIBRARY="${EMCACHE}/sysroot/lib/wasm32-emscripten/libSDL2.a" \
+#           -DFREETYPE_INCLUDE_DIRS="${EMCACHE}/sysroot/include/freetype2" \
+#           -DFREETYPE_LIBRARY="${EMCACHE}/sysroot/lib/wasm32-emscripten/libfreetype.a" \
+#           -DWANT_MONOLITH=ON \
 #           -DWANT_TTF=ON \
 #           -DWANT_IMAGE=ON \
 #           -DWANT_PRIMITIVES=ON \
 #           -DWANT_FONT=ON \
-#           -DWANT_MONOLITH=ON \
+#           -DWANT_NATIVE_DIALOG=OFF \
+#           -DWANT_AUDIO=OFF \
+#           -DWANT_ACODEC=OFF \
+#           -DWANT_SHADERS_GL=OFF \
+#           -DWANT_EXAMPLES=OFF \
+#           -DWANT_TESTS=OFF \
+#           -DWANT_DOCS=OFF \
 #           -S .
 #       cmake --build build-wasm -j$(nproc)
 #
