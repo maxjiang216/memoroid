@@ -112,6 +112,7 @@ emcc main.cpp \
   ${ADDON_INCS} \
   "${ALLEGRO_LIB_FILE}" \
   -sUSE_SDL=2 \
+  -sFULL_ES2=1 \
   -sALLOW_MEMORY_GROWTH=1 \
   -sEXPORTED_RUNTIME_METHODS='["UTF8ToString","lengthBytesUTF8","stringToUTF8"]' \
   --preload-file assets/ \
