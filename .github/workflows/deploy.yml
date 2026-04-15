@@ -52,13 +52,22 @@ jobs:
         uses: actions/cache@v4
         with:
           path: allegro5-src
-          key: allegro-${{ env.ALLEGRO_TAG }}-emcc-${{ steps.emcc-ver.outputs.ver }}-v3
+          key: allegro-${{ env.ALLEGRO_TAG }}-emcc-${{ steps.emcc-ver.outputs.ver }}-v4
 
       - name: Clone Allegro source
         if: steps.cache-allegro.outputs.cache-hit != 'true'
         run: |
           git clone --branch "$ALLEGRO_TAG" --depth 1 \
             https://github.com/liballeg/allegro5.git allegro5-src
+
+      - name: Patch Allegro - strip SSE flags incompatible with Emscripten
+        if: steps.cache-allegro.outputs.cache-hit != 'true'
+        run: |
+          # Allegro's CMakeLists.txt unconditionally adds -mfpmath=sse -msse -msse2
+          # for any GCC/Clang compiler (which emcc appears as). Emscripten rejects
+          # those flags unless -msimd128 is also passed. Remove them from source.
+          sed -i 's/-mfpmath=sse\b//g; s/-msse[0-9.a-z]*\b//g; s/-mavx[0-9a-z]*\b//g' \
+            allegro5-src/CMakeLists.txt
 
       - name: Build Allegro for Emscripten
         if: steps.cache-allegro.outputs.cache-hit != 'true'
@@ -78,7 +87,7 @@ jobs:
             -DFREETYPE_INCLUDE_DIRS="${FT_INC}" \
             -DFREETYPE_LIBRARY="${FT_LIB}" \
             -DWANT_MONOLITH=ON \
-            -DWANT_TTF=ON \
+            -DWANT_TTF=OFF \
             -DWANT_IMAGE=ON \
             -DWANT_PRIMITIVES=ON \
             -DWANT_FONT=ON \
@@ -86,7 +95,6 @@ jobs:
             -DWANT_AUDIO=OFF \
             -DWANT_ACODEC=OFF \
             -DWANT_SHADERS_GL=OFF \
-            -DWANT_SSE=OFF \
             -DWANT_EXAMPLES=OFF \
             -DWANT_TESTS=OFF \
             -DWANT_DOCS=OFF

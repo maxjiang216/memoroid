@@ -3,7 +3,9 @@
 #include <allegro5/allegro_image.h>
 #include <allegro5/allegro_native_dialog.h>
 #include <allegro5/allegro_primitives.h>
+#ifndef __EMSCRIPTEN__
 #include <allegro5/allegro_ttf.h>
+#endif
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -272,6 +274,7 @@ ALLEGRO_BITMAP *loadUiBitmap(const char *filename) {
 }
 
 ALLEGRO_FONT *loadGameFont() {
+#ifndef __EMSCRIPTEN__
   char buf[512];
   snprintf(buf, sizeof buf, "%scomic.ttf", ASSETS_FONTS);
   ALLEGRO_FONT *f = al_load_ttf_font(buf, 50, 0);
@@ -280,6 +283,10 @@ ALLEGRO_FONT *loadGameFont() {
   if (!f)
     f = al_create_builtin_font();
   return f;
+#else
+  // TTF addon not compiled into the WASM monolith; use builtin font.
+  return al_create_builtin_font();
+#endif
 }
 
 void wireCardImages(int *deckvals, int n, Button *cards, ALLEGRO_BITMAP *fb[25]) {
@@ -882,7 +889,9 @@ int main(int argc, char *argv[]) {
     return -1;
   }
   al_init_font_addon();
+#ifndef __EMSCRIPTEN__
   al_init_ttf_addon();
+#endif
   font = loadGameFont();
   if (!font) {
     FATAL_MSG(display, "Could not create font!");
