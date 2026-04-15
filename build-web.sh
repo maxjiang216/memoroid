@@ -85,15 +85,31 @@ fi
 echo "Using Allegro library: ${ALLEGRO_LIB_FILE}"
 
 echo "Building memoroid.wasm ..."
-# ALLEGRO_BUILD_INCLUDE: cmake generates alplatf.h into the build tree's
-# include/ directory. We derive its location from the library path.
-ALLEGRO_BUILD_INCLUDE="$(dirname "${ALLEGRO_LIB_FILE}")/../include"
+
+# Derive Allegro build and source roots from the library path.
+# Layout: allegro5-src/build-wasm/lib/liballegro_monolith.a
+#              => build dir:  allegro5-src/build-wasm/
+#              => source dir: allegro5-src/
+ALLEGRO_BUILD_DIR="$(cd "$(dirname "${ALLEGRO_LIB_FILE}")/.." && pwd)"
+ALLEGRO_SRC_DIR="$(cd "${ALLEGRO_BUILD_DIR}/.." && pwd)"
+
+# Generated headers (alplatf.h etc.) land in the build include tree.
+ALLEGRO_BUILD_INC="${ALLEGRO_BUILD_DIR}/include"
+
+# Addon headers (allegro_font.h, allegro_image.h, allegro_primitives.h, …)
+# live in the source addon subdirectories. They are NOT copied to the build
+# tree during cmake build (only on cmake --install), so we add each one.
+ADDON_INCS=""
+for addon_dir in "${ALLEGRO_SRC_DIR}/addons"/*/; do
+    [ -d "${addon_dir}" ] && ADDON_INCS="${ADDON_INCS} -I${addon_dir%/}"
+done
 
 emcc main.cpp \
   -std=c++17 \
   -O2 \
   -I"${ALLEGRO_INCLUDE}" \
-  -I"${ALLEGRO_BUILD_INCLUDE}" \
+  -I"${ALLEGRO_BUILD_INC}" \
+  ${ADDON_INCS} \
   "${ALLEGRO_LIB_FILE}" \
   -sUSE_SDL=2 \
   -sALLOW_MEMORY_GROWTH=1 \
