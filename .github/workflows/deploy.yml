@@ -1,0 +1,94 @@
+name: Build and Deploy to Vercel
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:   # lets you trigger manually from the GitHub UI
+
+# Only one deployment runs at a time; a newer push cancels an in-flight one.
+concurrency:
+  group: vercel-deploy
+  cancel-in-progress: true
+
+env:
+  # Pin the Allegro release tag used for the WASM build.
+  # Update this when you want to upgrade Allegro.
+  ALLEGRO_TAG: "5.2.10.1"
+
+jobs:
+  build-deploy:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # ── Emscripten ────────────────────────────────────────────────────────
+      - name: Set up Emscripten
+        uses: mymindstorm/setup-emscripten@v14
+        with:
+          version: latest
+          # The action caches emsdk itself, so subsequent runs are fast.
+          actions-cache-folder: emsdk-cache
+
+      - name: Record emcc version (for Allegro cache key)
+        id: emcc-ver
+        run: echo "ver=$(emcc -dumpversion)" >> "$GITHUB_OUTPUT"
+
+      # ── Allegro for Emscripten (cached) ───────────────────────────────────
+      # The first run clones + compiles (~8 min). Every subsequent run
+      # restores from cache and skips straight to the game build (~30 s).
+      - name: Restore Allegro WASM build cache
+        id: cache-allegro
+        uses: actions/cache@v4
+        with:
+          path: allegro5-src
+          key: allegro-${{ env.ALLEGRO_TAG }}-emcc-${{ steps.emcc-ver.outputs.ver }}
+
+      - name: Clone Allegro source
+        if: steps.cache-allegro.outputs.cache-hit != 'true'
+        run: |
+          git clone --branch "$ALLEGRO_TAG" --depth 1 \
+            https://github.com/liballeg/allegro5.git allegro5-src
+
+      - name: Build Allegro for Emscripten
+        if: steps.cache-allegro.outputs.cache-hit != 'true'
+        run: |
+          emcmake cmake -S allegro5-src -B allegro5-src/build-wasm \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DALLEGRO_SDL=ON \
+            -DWANT_MONOLITH=ON \
+            -DWANT_TTF=ON \
+            -DWANT_IMAGE=ON \
+            -DWANT_PRIMITIVES=ON \
+            -DWANT_FONT=ON \
+            -DWANT_NATIVE_DIALOG=OFF \
+            -DWANT_AUDIO=OFF \
+            -DWANT_ACODEC=OFF \
+            -DWANT_SHADERS_GL=OFF
+          cmake --build allegro5-src/build-wasm -j$(nproc)
+
+      # ── Build the game ────────────────────────────────────────────────────
+      - name: Build memoroid.wasm
+        run: |
+          ALLEGRO_INCLUDE=allegro5-src/include \
+          ALLEGRO_LIB=allegro5-src/build-wasm/lib \
+          OUT_DIR=public \
+          bash build-web.sh
+
+      # ── Deploy to Vercel ──────────────────────────────────────────────────
+      # Required GitHub secrets (Settings → Secrets and variables → Actions):
+      #   VERCEL_TOKEN      — create at https://vercel.com/account/tokens
+      #   VERCEL_ORG_ID     — your Vercel account/team ID (see note below)
+      #   VERCEL_PROJECT_ID — the project ID (see note below)
+      #
+      # How to get VERCEL_ORG_ID and VERCEL_PROJECT_ID:
+      #   1. Install Vercel CLI locally:  npm i -g vercel
+      #   2. Run inside this repo:        vercel link
+      #   3. Open .vercel/project.json — the two IDs are there.
+      #   (You can delete .vercel/ afterwards; don't commit it.)
+      - name: Deploy to Vercel
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: npx vercel@latest --token "$VERCEL_TOKEN" --prod --yes
