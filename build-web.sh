@@ -56,10 +56,13 @@
 # Commit that directory and push; Vercel serves it as a static site.
 #
 # Before linking, this script:
-#   1. Converts character BMPs → JPEG in a temp dir (web-assets/) to stay
-#      under Vercel's 100 MB deployment limit (~911 KB BMP → ~60 KB JPEG).
-#   2. Runs scripts/generate_wasm_character_manifest.py with --ext jpg so the
-#      WASM manifest lists .jpg filenames matching the converted files.
+#   1. Runs scripts/generate_wasm_character_manifest.py to create
+#      generated/wasm_character_manifest.cpp from assets/characters/.
+#   2. Runs Emscripten's file_packager.py with --lz4 to produce a compressed
+#      index.data bundle and a JS loader (index.data.js).  Using the packager
+#      directly avoids passing --lz4 through to clang (which rejects it).
+#      BMP files (flat-colour anime art) compress ~4–6× with LZ4, bringing
+#      ~155 MB of character art down to ~30–40 MB — well under Vercel's limit.
 # Desktop builds are unaffected and continue to load .bmp via the filesystem.
 
 set -euo pipefail
@@ -114,29 +117,24 @@ done
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "${SCRIPT_DIR}"
 
-# Convert character BMPs → JPEG for the web bundle.
-# BMPs are ~911 KB each; JPEG-85 is ~50-80 KB — a ~12× size reduction that
-# keeps the preloaded data well under Vercel's 100 MB limit.
-WEB_ASSETS="${SCRIPT_DIR}/web-assets"
-echo "Creating web asset bundle (BMP → JPEG for character art) …"
-rm -rf "${WEB_ASSETS}"
-cp -r "${SCRIPT_DIR}/assets" "${WEB_ASSETS}"
-if command -v magick &>/dev/null; then CONV="magick"; else CONV="convert"; fi
-find "${WEB_ASSETS}/characters" -name '*.bmp' | while IFS= read -r bmp; do
-  "${CONV}" "${bmp}" -quality 85 "${bmp%.bmp}.jpg"
-  rm "${bmp}"
-done
-echo "  $(find "${WEB_ASSETS}/characters" -name '*.jpg' | wc -l) JPEG(s) ready"
-# Remove temp dir on exit (success or failure).
-trap 'rm -rf "${WEB_ASSETS}"' EXIT
-
 GEN_CPP="${SCRIPT_DIR}/generated/wasm_character_manifest.cpp"
-echo "Generating WASM character manifest (ext=jpg) …"
+echo "Generating WASM character manifest (ext=bmp) …"
 python3 "${SCRIPT_DIR}/scripts/generate_wasm_character_manifest.py" \
-  --characters "${WEB_ASSETS}/characters" \
-  --ext jpg \
+  --characters "${SCRIPT_DIR}/assets/characters" \
   --out "${GEN_CPP}"
 
+# Package assets with LZ4 compression.
+# We invoke file_packager.py directly so --lz4 is never forwarded to clang.
+EMSCRIPTEN_ROOT=$(em-config EMSCRIPTEN_ROOT)
+echo "Packaging assets with LZ4 compression …"
+python3 "${EMSCRIPTEN_ROOT}/tools/file_packager.py" \
+  "${OUT_DIR}/index.data" \
+  --preload "${SCRIPT_DIR}/assets@assets" \
+  --lz4 \
+  --js-output="${OUT_DIR}/index.data.js"
+echo "  index.data: $(du -sh "${OUT_DIR}/index.data" | cut -f1)"
+
+echo "Compiling and linking …"
 emcc main.cpp \
   "${GEN_CPP}" \
   -std=c++17 \
@@ -150,7 +148,7 @@ emcc main.cpp \
   -sFULL_ES2=1 \
   -sALLOW_MEMORY_GROWTH=1 \
   -sEXPORTED_RUNTIME_METHODS='["UTF8ToString","lengthBytesUTF8","stringToUTF8"]' \
-  --preload-file "${WEB_ASSETS}@assets" \
+  --pre-js "${OUT_DIR}/index.data.js" \
   --shell-file "${SCRIPT_DIR}/memoroid-shell.html" \
   -o "${OUT_DIR}/index.html"
 
