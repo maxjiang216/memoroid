@@ -37,12 +37,15 @@ jobs:
         id: emcc-ver
         run: echo "ver=$(emcc -dumpversion)" >> "$GITHUB_OUTPUT"
 
-      # Pre-build the SDL2 Emscripten port so its headers and static lib land
-      # in the emsdk sysroot before cmake runs.
-      # This must happen before the Allegro cmake step even on cache hits,
-      # because embuilder populates emsdk's own cache (not allegro5-src).
-      - name: Pre-build Emscripten SDL2 port
-        run: embuilder build sdl2
+      # Pre-build Emscripten ports so headers and static libs land in the emsdk
+      # sysroot before cmake runs.  Must happen before the Allegro cmake step
+      # even on cache hits, because embuilder populates emsdk's own cache.
+      # libpng is needed so Allegro's image addon compiles in proper PNG support
+      # instead of falling back to stb_image, whose handler is not WASM-safe.
+      - name: Pre-build Emscripten ports (SDL2, libpng)
+        run: |
+          embuilder build sdl2
+          embuilder build libpng
 
       # ── Allegro for Emscripten (cached) ─────────────────────────────────
       # Cache key includes the allegro tag, emcc version, and a manual bump
@@ -52,7 +55,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: allegro5-src
-          key: allegro-${{ env.ALLEGRO_TAG }}-emcc-${{ steps.emcc-ver.outputs.ver }}-v6
+          key: allegro-${{ env.ALLEGRO_TAG }}-emcc-${{ steps.emcc-ver.outputs.ver }}-v7-libpng
 
       - name: Clone Allegro source
         if: steps.cache-allegro.outputs.cache-hit != 'true'
@@ -83,8 +86,8 @@ jobs:
 
           emcmake cmake -S allegro5-src -B allegro5-src/build-wasm \
             -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_C_FLAGS="-sUSE_SDL=2" \
-            -DCMAKE_CXX_FLAGS="-sUSE_SDL=2" \
+            -DCMAKE_C_FLAGS="-sUSE_SDL=2 -sUSE_LIBPNG=1" \
+            -DCMAKE_CXX_FLAGS="-sUSE_SDL=2 -sUSE_LIBPNG=1" \
             -DALLEGRO_SDL=ON \
             -DSDL2_INCLUDE_DIR="${SDL2_INC}" \
             -DSDL2_LIBRARY="${SDL2_LIB}" \
