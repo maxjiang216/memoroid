@@ -104,6 +104,8 @@ for addon_dir in "${ALLEGRO_SRC_DIR}/addons"/*/; do
     [ -d "${addon_dir}" ] && ADDON_INCS="${ADDON_INCS} -I${addon_dir%/}"
 done
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 emcc main.cpp \
   -std=c++17 \
   -O2 \
@@ -116,6 +118,7 @@ emcc main.cpp \
   -sALLOW_MEMORY_GROWTH=1 \
   -sEXPORTED_RUNTIME_METHODS='["UTF8ToString","lengthBytesUTF8","stringToUTF8"]' \
   --preload-file assets/ \
+  --shell-file "${SCRIPT_DIR}/memoroid-shell.html" \
   -o "${OUT_DIR}/index.html"
 
 echo ""
