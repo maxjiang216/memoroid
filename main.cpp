@@ -18,6 +18,7 @@
 
 #ifdef __EMSCRIPTEN__
 #include <emscripten.h>
+#include "wasm_character_manifest.hpp"
 #else
 #include <filesystem>
 #endif
@@ -108,8 +109,6 @@ static Button card3[9], card4[16], card5[25], card6[36], card7[49];
 // assets/characters/ — see scripts/generate_wasm_character_manifest.py .
 // -----------------------------------------------------------------------
 #ifdef __EMSCRIPTEN__
-
-#include "wasm_character_manifest.hpp"
 
 void collectBmpPaths(const std::string &dir, std::vector<std::string> &out) {
   out.clear();
