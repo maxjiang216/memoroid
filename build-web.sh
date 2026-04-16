@@ -62,9 +62,11 @@
 #      quality loss.  Allegro loads PNGs via libpng (compiled in with
 #      -sUSE_LIBPNG=1 / embuilder build libpng — see deploy.yml).
 #   2. Runs scripts/generate_wasm_character_manifest.py with --ext png.
-#   3. Packages assets via Emscripten's file_packager.py.  We call the
-#      packager directly (not via emcc --preload-file) so we can point it
-#      at web-assets/ instead of assets/.
+#   3. Passes web-assets/ to emcc via --preload-file "@assets".
+#      We do NOT use a separate file_packager.py step: the file_packager
+#      output uses Module.FS_createPath which is not yet defined when the
+#      code runs via --pre-js (the FS isn't initialized at that point).
+#      emcc's built-in --preload-file handles timing correctly.
 # Desktop builds are unaffected and continue to load .bmp via the filesystem.
 
 set -euo pipefail
@@ -141,16 +143,6 @@ python3 "${SCRIPT_DIR}/scripts/generate_wasm_character_manifest.py" \
   --ext png \
   --out "${GEN_CPP}"
 
-# Package assets using file_packager.py directly (avoids emcc flag-forwarding
-# issues) and point it at web-assets/ where the PNGs live.
-EMSCRIPTEN_ROOT=$(em-config EMSCRIPTEN_ROOT)
-echo "Packaging assets …"
-python3 "${EMSCRIPTEN_ROOT}/tools/file_packager.py" \
-  "${OUT_DIR}/index.data" \
-  --preload "${WEB_ASSETS}@assets" \
-  --js-output="${OUT_DIR}/index.data.js"
-echo "  index.data: $(du -sh "${OUT_DIR}/index.data" | cut -f1)"
-
 echo "Compiling and linking …"
 emcc main.cpp \
   "${GEN_CPP}" \
@@ -166,9 +158,10 @@ emcc main.cpp \
   -sFULL_ES2=1 \
   -sALLOW_MEMORY_GROWTH=1 \
   -sEXPORTED_RUNTIME_METHODS='["UTF8ToString","lengthBytesUTF8","stringToUTF8"]' \
-  --pre-js "${OUT_DIR}/index.data.js" \
+  --preload-file "${WEB_ASSETS}@assets" \
   --shell-file "${SCRIPT_DIR}/memoroid-shell.html" \
   -o "${OUT_DIR}/index.html"
+echo "  index.data: $(du -sh "${OUT_DIR}/index.data" | cut -f1)"
 
 echo ""
 echo "Build complete. Output in ${OUT_DIR}/:"

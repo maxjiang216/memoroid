@@ -114,6 +114,42 @@ jobs:
           OUT_DIR=public \
           bash build-web.sh
 
+      # ── Smoke-test the build output ──────────────────────────────────────
+      # Catches the classes of failure we've encountered:
+      #   1. Missing files          → asset loading errors at runtime ("black screen")
+      #   2. Deployment size > 85 MB → Vercel 100 MB limit exceeded
+      #   3. index.data too small   → BMP→PNG conversion or --preload-file broke
+      - name: Verify build artifacts and deployment size
+        run: |
+          echo "=== public/ contents ==="
+          ls -lh public/
+
+          # All four runtime files must exist.
+          for f in index.html index.js index.wasm index.data; do
+            if [ ! -f "public/$f" ]; then
+              echo "ERROR: public/$f is missing" >&2; exit 1
+            fi
+          done
+          echo "✓ all required files present"
+
+          # index.data must be at least 5 MB (assets are present).
+          DATA_KB=$(du -sk public/index.data | cut -f1)
+          if [ "$DATA_KB" -lt 5120 ]; then
+            echo "ERROR: public/index.data is only ${DATA_KB} KB — assets may be missing" >&2
+            exit 1
+          fi
+          echo "✓ index.data size: $(du -sh public/index.data | cut -f1)"
+
+          # Total public/ must stay under 85 MB (Vercel hard limit is 100 MB).
+          SIZE_KB=$(du -sk public/ | cut -f1)
+          MAX_KB=$((85 * 1024))
+          if [ "$SIZE_KB" -gt "$MAX_KB" ]; then
+            echo "ERROR: public/ is ${SIZE_KB} KB total, exceeds 85 MB limit" >&2
+            du -sh public/*
+            exit 1
+          fi
+          echo "✓ total size: $(du -sh public/ | cut -f1) (under 85 MB)"
+
       # Pass the built web files to the deploy job without re-running the build.
       - name: Upload web artifacts
         uses: actions/upload-artifact@v4
