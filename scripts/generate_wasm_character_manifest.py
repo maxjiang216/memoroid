@@ -1,8 +1,12 @@
 #!/usr/bin/env python3
 """
-Scan assets/characters/ and emit generated/wasm_character_manifest.cpp for Emscripten.
+Scan a characters directory and emit generated/wasm_character_manifest.cpp for Emscripten.
 
-Uses the same rules as scripts/import_tmp_to_characters.py (collect_manifest).
+During a regular web build, build-web.sh converts character BMPs to JPEG in a
+temporary directory first, then calls this script with --ext jpg so the
+generated manifest lists .jpg filenames (much smaller than .bmp for Vercel).
+
+For desktop the manifest is unused; Allegro scans the filesystem directly.
 
 Run automatically from build-web.sh before emcc.
 """
@@ -10,7 +14,7 @@ Run automatically from build-web.sh before emcc.
 from __future__ import annotations
 
 import argparse
-import importlib.util
+import re
 import sys
 from pathlib import Path
 
@@ -19,23 +23,39 @@ def repo_root() -> Path:
     return Path(__file__).resolve().parent.parent
 
 
-def load_collect_manifest():
-    itc_path = Path(__file__).resolve().parent / "import_tmp_to_characters.py"
-    spec = importlib.util.spec_from_file_location("import_tmp_to_characters", itc_path)
-    if spec is None or spec.loader is None:
-        raise RuntimeError(f"Cannot load {itc_path}")
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod.collect_manifest
-
-
 def cpp_escape(s: str) -> str:
     return s.replace("\\", "\\\\").replace('"', '\\"')
 
 
-def emit_cpp(characters_dir: Path, out_path: Path) -> None:
-    collect_manifest = load_collect_manifest()
-    m = collect_manifest(characters_dir)
+def collect_manifest(characters_dir: Path, ext: str) -> dict[str, list[str]]:
+    """Return {slug: [filename, …]} sorted numerically for files with *ext*."""
+    ext_dot = "." + ext.lower().lstrip(".")
+    out: dict[str, list[str]] = {}
+    for sub in sorted(characters_dir.iterdir()):
+        if not sub.is_dir() or sub.name.startswith("."):
+            continue
+        slug = sub.name
+        names = [
+            p.name
+            for p in sub.iterdir()
+            if p.is_file() and p.suffix.lower() == ext_dot
+        ]
+        if not names:
+            continue
+        pat = re.compile(
+            rf"^{re.escape(slug)}_(\d+){re.escape(ext_dot)}$", re.IGNORECASE
+        )
+
+        def key(n: str, _pat: re.Pattern = pat) -> tuple:
+            mo = _pat.match(n)
+            return (0, int(mo.group(1))) if mo else (1, n.lower())
+
+        out[slug] = sorted(names, key=key)
+    return out
+
+
+def emit_cpp(characters_dir: Path, out_path: Path, ext: str) -> None:
+    m = collect_manifest(characters_dir, ext)
     slugs_sorted = sorted(m.keys())
 
     lines: list[str] = [
@@ -48,7 +68,7 @@ def emit_cpp(characters_dir: Path, out_path: Path) -> None:
         "",
         "namespace {",
         "",
-        "std::vector<std::string> bmps_for_slug_impl(const std::string &slug) {",
+        "std::vector<std::string> files_for_slug_impl(const std::string &slug) {",
     ]
 
     for slug in slugs_sorted:
@@ -71,7 +91,7 @@ def emit_cpp(characters_dir: Path, out_path: Path) -> None:
     lines.append("} // namespace")
     lines.append("")
     lines.append("std::vector<std::string> wasm_get_bmps_for_slug(const std::string &slug) {")
-    lines.append("  return bmps_for_slug_impl(slug);")
+    lines.append("  return files_for_slug_impl(slug);")
     lines.append("}")
     lines.append("")
     lines.append("void wasm_scan_character_slugs(std::vector<std::string> &out) {")
@@ -94,7 +114,12 @@ def main() -> int:
         "--characters",
         type=Path,
         default=root / "assets/characters",
-        help="Path to assets/characters (default: <repo>/assets/characters)",
+        help="Path to characters directory (default: <repo>/assets/characters)",
+    )
+    ap.add_argument(
+        "--ext",
+        default="bmp",
+        help="File extension to scan for and list in the manifest (default: bmp)",
     )
     ap.add_argument(
         "--out",
@@ -107,8 +132,12 @@ def main() -> int:
     if not ch.is_dir():
         print(f"ERROR: not a directory: {ch}", file=sys.stderr)
         return 1
-    emit_cpp(ch, args.out.resolve())
-    print(f"Wrote {args.out.resolve().relative_to(root)}")
+    emit_cpp(ch, args.out.resolve(), args.ext)
+    try:
+        rel = args.out.resolve().relative_to(root)
+    except ValueError:
+        rel = args.out.resolve()
+    print(f"Wrote {rel}  (ext=.{args.ext.lstrip('.')}, {len(collect_manifest(ch, args.ext))} characters)")
     return 0
 
 
