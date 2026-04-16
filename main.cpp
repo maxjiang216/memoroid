@@ -18,6 +18,7 @@
 
 #ifdef __EMSCRIPTEN__
 #include <emscripten.h>
+#include "wasm_character_manifest.hpp"
 #else
 #include <filesystem>
 #endif
@@ -104,44 +105,10 @@ static Button card3[9], card4[16], card5[25], card6[36], card7[49];
 
 // -----------------------------------------------------------------------
 // Step 3 (filesystem): on WASM, directory_iterator cannot scan the preloaded
-// virtual FS reliably, so we replace both helpers with hardcoded manifests
-// derived from the actual assets/ tree in this repo.
+// virtual FS reliably. Character .bmp lists are generated at build time from
+// assets/characters/ — see scripts/generate_wasm_character_manifest.py .
 // -----------------------------------------------------------------------
 #ifdef __EMSCRIPTEN__
-
-static std::vector<std::string> getBmpsForSlug(const std::string &slug) {
-  if (slug == "asuna")
-    return {"asuna.bmp", "asunab.bmp", "asunac.bmp", "asunad.bmp",
-            "asunae.bmp"};
-  if (slug == "aoba")    return {"aoba.bmp"};
-  if (slug == "azusa")   return {"azusa.bmp"};
-  if (slug == "chiyo")   return {"chiyo.bmp", "chiyob.bmp"};
-  if (slug == "chitoge") return {"chitoge.bmp", "chitogeb.bmp"};
-  if (slug == "emilia")  return {"emilia.bmp"};
-  if (slug == "hifumin") return {"hifumin.bmp"};
-  if (slug == "kanade")  return {"kanade.bmp"};
-  if (slug == "katou")   return {"katou.bmp", "katoub.bmp"};
-  if (slug == "kosaki")  return {"kosaki.bmp"};
-  if (slug == "mashiron")
-    return {"mashiron.bmp", "mashironb.bmp", "mashironc.bmp", "mashirond.bmp"};
-  if (slug == "megumin") return {"megumin.bmp"};
-  if (slug == "menmu")   return {"menmu.bmp"};
-  if (slug == "mio")     return {"mio.bmp", "miob.bmp", "mioc.bmp"};
-  if (slug == "misaka")
-    return {"misaka.bmp", "misakab.bmp", "misakac.bmp", "misakad.bmp"};
-  if (slug == "mizuki")  return {"mizuki.bmp"};
-  if (slug == "nanamin") return {"nanamin.bmp"};
-  if (slug == "nao")     return {"nao.bmp", "naob.bmp"};
-  if (slug == "rem")     return {"rem.bmp", "remb.bmp", "remc.bmp"};
-  if (slug == "rikka")   return {"rikka.bmp", "rikkab.bmp"};
-  if (slug == "ritsu")   return {"ritsu.bmp"};
-  if (slug == "shiro")   return {"shiro.bmp"};
-  if (slug == "taiga")   return {"taiga.bmp"};
-  if (slug == "yuichan") return {"yuichan.bmp"};
-  if (slug == "yukinon") return {"yukinon.bmp"};
-  if (slug == "yui")     return {"yui.bmp"};
-  return {};
-}
 
 void collectBmpPaths(const std::string &dir, std::vector<std::string> &out) {
   out.clear();
@@ -152,18 +119,12 @@ void collectBmpPaths(const std::string &dir, std::vector<std::string> &out) {
   auto pos = slug.rfind('/');
   if (pos != std::string::npos)
     slug = slug.substr(pos + 1);
-  for (const auto &f : getBmpsForSlug(slug))
+  for (const auto &f : wasm_get_bmps_for_slug(slug))
     out.push_back(dir + "/" + f);
 }
 
 void scanCharacterSlugs(std::vector<std::string> &out) {
-  // Hardcoded list matching assets/characters/ folders that contain at least
-  // one .bmp file (yun, vigne, kaede, extras contain only .gitkeep).
-  out = {"asuna",   "aoba",    "azusa",   "chiyo",   "chitoge", "emilia",
-         "hifumin", "kanade",  "katou",   "kosaki",  "mashiron","megumin",
-         "menmu",   "mio",     "misaka",  "mizuki",  "nanamin", "nao",
-         "rem",     "rikka",   "ritsu",   "shiro",   "taiga",   "yuichan",
-         "yukinon", "yui"};
+  wasm_scan_character_slugs(out);
 }
 
 #else // native desktop

@@ -54,6 +54,10 @@
 #
 # Output goes to public/ (index.html, index.js, index.wasm, index.data).
 # Commit that directory and push; Vercel serves it as a static site.
+#
+# Before linking, this script runs scripts/generate_wasm_character_manifest.py
+# so the WASM build lists character .bmp files from assets/characters/ (no
+# manual edits to main.cpp).
 
 set -euo pipefail
 
@@ -105,10 +109,19 @@ for addon_dir in "${ALLEGRO_SRC_DIR}/addons"/*/; do
 done
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "${SCRIPT_DIR}"
+
+GEN_CPP="${SCRIPT_DIR}/generated/wasm_character_manifest.cpp"
+echo "Generating WASM character manifest from assets/characters/ …"
+python3 "${SCRIPT_DIR}/scripts/generate_wasm_character_manifest.py" \
+  --characters "${SCRIPT_DIR}/assets/characters" \
+  --out "${GEN_CPP}"
 
 emcc main.cpp \
+  "${GEN_CPP}" \
   -std=c++17 \
   -O2 \
+  -I. \
   -I"${ALLEGRO_INCLUDE}" \
   -I"${ALLEGRO_BUILD_INC}" \
   ${ADDON_INCS} \
