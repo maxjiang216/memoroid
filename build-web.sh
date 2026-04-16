@@ -56,10 +56,13 @@
 # Commit that directory and push; Vercel serves it as a static site.
 #
 # Before linking, this script:
-#   1. Converts character BMPs → JPEG in a temp dir (web-assets/) to stay
-#      under Vercel's 100 MB deployment limit (~911 KB BMP → ~60 KB JPEG).
-#   2. Runs scripts/generate_wasm_character_manifest.py with --ext jpg so the
-#      WASM manifest lists .jpg filenames matching the converted files.
+#   1. Runs scripts/generate_wasm_character_manifest.py to create
+#      generated/wasm_character_manifest.cpp from assets/characters/.
+#   2. Packages the assets/ directory with emcc --preload-file and --lz4.
+#      --lz4 compresses the .data bundle at build time; the JS loader
+#      decompresses in-browser.  BMP files (flat-colour anime art) compress
+#      ~4–6× with LZ4, bringing ~155 MB of character art down to ~30–40 MB
+#      and keeping the Vercel deployment well under 100 MB.
 # Desktop builds are unaffected and continue to load .bmp via the filesystem.
 
 set -euo pipefail
@@ -114,27 +117,10 @@ done
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "${SCRIPT_DIR}"
 
-# Convert character BMPs → JPEG for the web bundle.
-# BMPs are ~911 KB each; JPEG-85 is ~50-80 KB — a ~12× size reduction that
-# keeps the preloaded data well under Vercel's 100 MB limit.
-WEB_ASSETS="${SCRIPT_DIR}/web-assets"
-echo "Creating web asset bundle (BMP → JPEG for character art) …"
-rm -rf "${WEB_ASSETS}"
-cp -r "${SCRIPT_DIR}/assets" "${WEB_ASSETS}"
-if command -v magick &>/dev/null; then CONV="magick"; else CONV="convert"; fi
-find "${WEB_ASSETS}/characters" -name '*.bmp' | while IFS= read -r bmp; do
-  "${CONV}" "${bmp}" -quality 85 "${bmp%.bmp}.jpg"
-  rm "${bmp}"
-done
-echo "  $(find "${WEB_ASSETS}/characters" -name '*.jpg' | wc -l) JPEG(s) ready"
-# Remove temp dir on exit (success or failure).
-trap 'rm -rf "${WEB_ASSETS}"' EXIT
-
 GEN_CPP="${SCRIPT_DIR}/generated/wasm_character_manifest.cpp"
-echo "Generating WASM character manifest (ext=jpg) …"
+echo "Generating WASM character manifest (ext=bmp) …"
 python3 "${SCRIPT_DIR}/scripts/generate_wasm_character_manifest.py" \
-  --characters "${WEB_ASSETS}/characters" \
-  --ext jpg \
+  --characters "${SCRIPT_DIR}/assets/characters" \
   --out "${GEN_CPP}"
 
 emcc main.cpp \
@@ -150,7 +136,8 @@ emcc main.cpp \
   -sFULL_ES2=1 \
   -sALLOW_MEMORY_GROWTH=1 \
   -sEXPORTED_RUNTIME_METHODS='["UTF8ToString","lengthBytesUTF8","stringToUTF8"]' \
-  --preload-file "${WEB_ASSETS}@assets" \
+  --preload-file assets/ \
+  --lz4 \
   --shell-file "${SCRIPT_DIR}/memoroid-shell.html" \
   -o "${OUT_DIR}/index.html"
 
